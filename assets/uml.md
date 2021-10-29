@@ -32,7 +32,7 @@ class OrbOdom{
 	+matchFeatures(List desc1, List desc2)
 }
 
-VisualOdom <|-- MonoCamVisualOdom
+VisualOdom <|.. MonoCamVisualOdom
 MonoCamVisualOdom <|-- SiftOdom
 MonoCamVisualOdom <|-- OrbOdom
 ```
