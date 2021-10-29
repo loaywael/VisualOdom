@@ -1,7 +1,7 @@
 # VisualOdom
 This repository will contains visual odometry algorithms.
 
-![architecture](./assets/arch.png)
+![architecture UML](./assets/arch.png)
 ![trajectory estimated by OrbOdom](./assets/trajectory.png)
 
 <p align='center'><i><b>SiftOdom</b> Trajectory on <b>playground</b> test-scene</i></p>
