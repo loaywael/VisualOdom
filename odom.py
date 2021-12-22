@@ -1,8 +1,8 @@
 from abc import abstractmethod, ABC
+from collections import deque
 import numpy as np
 import time
 import cv2
-
 
 
 def timit(func):
@@ -17,36 +17,30 @@ def timit(func):
 
 class VisualOdom(ABC):
     @abstractmethod
-    def estimate_motion():
+    def estimate_motion(self):
         pass
 
     @abstractmethod
-    def estimate_trajectory():
+    def track_motion(self):
         pass
 
 
 class MonoCamVisualOdom(VisualOdom):
     def __init__(self, intrinsic_mtx):
-        self.__K = intrinsic_mtx
-        self.__kpts_buffer = []
-        self.__des_buffer = []
-        self.__trajectory = []
-        self.__pair_buffer = []
-        self.__P = np.eye(4)
-        self.__P_next = self.__P.copy()
+        self._K = intrinsic_mtx
+        self._kpts_buffer = deque(maxlen=2)
+        self._desc_buffer = deque(maxlen=2)
+        self._frames_buffer = deque(maxlen=2)
+        self._camTFs = [np.eye(4)]
     
-    @staticmethod
     # @timit
-    def estimate_motion(matches, img1_kpts, img2_kpts, K):
-        img1_pts = []
-        img2_pts = []
-        for match in matches:
-            img1_pts.append(img1_kpts[match.queryIdx].pt)
-            img2_pts.append(img2_kpts[match.trainIdx].pt)
-        pts1, pts2 = np.array(img1_pts), np.array(img2_pts)
-        E, mask = cv2.findEssentialMat(pts1, pts2, K)
-        ret, R, t, mask = cv2.recoverPose(E, pts1, pts2, K)
-        return R, t
+    def estimate_motion(self, img1Pts, img2Pts, K):
+        E, mask = cv2.findEssentialMat(img1Pts, img2Pts, K, method=cv2.RANSAC, prob=0.999, threshold=0.75)
+        ret, camR, camT, mask = cv2.recoverPose(E, img1Pts, img2Pts, K)
+        camTF = np.eye(4)   # (TF) -> world origin with respect to the camera center
+        camTF[:-1, :-1] = camR.T
+        camTF[:-1, -1:] = -camR.T @ camT
+        self._camTFs.append(np.mean(self._camTFs[-1:-2:-1], axis=0) @ camTF)    # smooth by the last 3 TFs
 
     @abstractmethod
     def get_features(self, frame:np.ndarray)-> tuple:
@@ -56,39 +50,37 @@ class MonoCamVisualOdom(VisualOdom):
     def match_features(self, desc1:list, desc2:list): 
         pass
 
-    # @timit
-    def estimate_trajectory(self, R, t):
-        self.__P_next[:-1, :-1] = R
-        self.__P_next[:-1, -1:] = t
-        P_next_inv = np.linalg.inv(self.__P_next)
-        self.__P = self.__P @ P_next_inv
-        cam_pose = self.__P[:3, 3]
-        self.__trajectory.append(cam_pose)
-        return cam_pose
+    @staticmethod
+    def get_matches(matches:list, img1Kpts:list, img2Kpts:list):
+        img1_pts = []
+        img2_pts = []
+        for match in matches:
+            img1_pts.append(img1Kpts[match.queryIdx].pt)
+            img2_pts.append(img2Kpts[match.trainIdx].pt)
+        return np.array(img1_pts), np.array(img2_pts)
 
     @property
     def trajectory(self):
-        return np.array(self.__trajectory[:])
+        return np.array(self._camTFs)[:, :3, 3]
+
+    @property
+    def camera_motion(self):
+        return np.array(self._camTFs)
 
     @timit
-    def __call__(self, frame):
-        self.__pair_buffer.append(frame)
+    def track_motion(self, frame):
+        self._frames_buffer.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
         kpts, des = self.get_features(frame)
-        self.__kpts_buffer.append(kpts)
-        self.__des_buffer.append(des)
-        if len(self.__pair_buffer) == 2:
-            matched_pts = self.match_features(*self.__des_buffer)
-            print([match.distance for match in matched_pts[:10]])
-            R, t = MonoCamVisualOdom.estimate_motion(matched_pts, *self.__kpts_buffer, self.__K)
-            trajectory_point = self.estimate_trajectory(R, t)
-            self.__pair_buffer.pop(0)
-            self.__kpts_buffer.pop(0)
-            self.__des_buffer.pop(0)
-            return trajectory_point
+        self._kpts_buffer.append(kpts)
+        self._desc_buffer.append(des)
+        if len(self._frames_buffer) == self._frames_buffer.maxlen:
+            matched_pts = self.match_features(*self._desc_buffer)
+            img1_pts, img2_pts = MonoCamVisualOdom.get_matches(matched_pts, *self._kpts_buffer)
+            self.estimate_motion(img1_pts, img2_pts, self._K)
 
 
 class SiftOdom(MonoCamVisualOdom):
-    SIFT_N_FEATURES = 50
+    SIFT_N_FEATURES = 100
     SIFT_CONTRAST_THRESHOLD = 0.15
     SIFT_EDGE_THRESHOLD = 15
     SIFT_N_OCTAVE_LAYERS = 5
@@ -109,20 +101,22 @@ class SiftOdom(MonoCamVisualOdom):
 
     def match_features(self, desc1:list, desc2:list):
         matched_pts = self._matcher.match(desc1, desc2)
-        sortedMatches = sorted(matched_pts, key=lambda x: x.distance)[:15]
+        sortedMatches = sorted(matched_pts, key=lambda x: x.distance)[:50]
         return sortedMatches
 
  
 class OrbOdom(MonoCamVisualOdom):
-    ORB_N_FEATURES = 500
-    ORB_EDGE_THRESHOLD = 15
+    ORB_N_FEATURES = 500    # more features more stable odom
+    ORB_EDGE_THRESHOLD = 13
+    ORB_SCORE_TYPE = cv2.ORB_FAST_SCORE
 
     def __init__(self, *args, **kwargs):
         super(OrbOdom, self).__init__(*args, **kwargs)
-        self._matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         self._orb = cv2.ORB_create(
             nfeatures=kwargs.get('nfeatures', OrbOdom.ORB_N_FEATURES), 
             edgeThreshold=kwargs.get('edgeThreshold', OrbOdom.ORB_EDGE_THRESHOLD), 
+            scoreType=kwargs.get('scoreType', OrbOdom.ORB_SCORE_TYPE),
         )
 
     def get_features(self, frame:np.uint8):
@@ -131,5 +125,7 @@ class OrbOdom(MonoCamVisualOdom):
 
     def match_features(self, desc1:list, desc2:list):
         matched_pts = self._matcher.match(desc1, desc2)
-        sortedMatches = sorted(matched_pts, key=lambda x: x.distance)[:250]
+        sortedMatches = sorted(matched_pts, key=lambda x: x.distance)
         return sortedMatches
+
+
