@@ -26,6 +26,9 @@ class VisualOdom(ABC):
 
 
 class MonoCamVisualOdom(VisualOdom):
+    RANSAC_METHOD = cv2.RANSAC
+    RANSAC_THRESHOLD = 0.75
+    RANSAC_CONF = 0.999
     def __init__(self, intrinsic_mtx):
         self._K = intrinsic_mtx
         self._kpts_buffer = deque(maxlen=2)
@@ -35,7 +38,12 @@ class MonoCamVisualOdom(VisualOdom):
     
     # @timit
     def estimate_motion(self, img1Pts, img2Pts, K):
-        E, mask = cv2.findEssentialMat(img1Pts, img2Pts, K, method=cv2.RANSAC, prob=0.999, threshold=0.75)
+        E, mask = cv2.findEssentialMat(
+            img1Pts, img2Pts, K, 
+            method=MonoCamVisualOdom.RANSAC_METHOD, 
+            prob=MonoCamVisualOdom.RANSAC_CONF, 
+            threshold=MonoCamVisualOdom.RANSAC_THRESHOLD
+        )
         ret, camR, camT, mask = cv2.recoverPose(E, img1Pts, img2Pts, K)
         camTF = np.eye(4)   # (TF) -> world origin with respect to the camera center
         camTF[:-1, :-1] = camR.T
@@ -80,19 +88,19 @@ class MonoCamVisualOdom(VisualOdom):
 
 
 class SiftOdom(MonoCamVisualOdom):
-    SIFT_N_FEATURES = 100
-    SIFT_CONTRAST_THRESHOLD = 0.15
-    SIFT_EDGE_THRESHOLD = 15
-    SIFT_N_OCTAVE_LAYERS = 5
+    N_FEATURES = 500
+    CONTRAST_THRESHOLD = 0.15
+    EDGE_THRESHOLD = 15
+    N_OCTAVE_LAYERS = 5
 
     def __init__(self, *args, **kwargs):
         super(SiftOdom, self).__init__(*args, **kwargs)
         self._matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
         self._sift = cv2.SIFT_create(
-            nfeatures=kwargs.get('nfeatures', SiftOdom.SIFT_N_FEATURES), 
-            contrastThreshold=kwargs.get('contrastThreshold', SiftOdom.SIFT_CONTRAST_THRESHOLD), 
-            edgeThreshold=kwargs.get('edgeThreshold', SiftOdom.SIFT_EDGE_THRESHOLD), 
-            nOctaveLayers=kwargs.get('nOctaveLayers', SiftOdom.SIFT_N_OCTAVE_LAYERS)
+            nfeatures=kwargs.get('nfeatures', SiftOdom.N_FEATURES), 
+            contrastThreshold=kwargs.get('contrastThreshold', SiftOdom.CONTRAST_THRESHOLD), 
+            edgeThreshold=kwargs.get('edgeThreshold', SiftOdom.EDGE_THRESHOLD), 
+            nOctaveLayers=kwargs.get('nOctaveLayers', SiftOdom.N_OCTAVE_LAYERS)
         )
 
     def get_features(self, frame:np.uint8):
@@ -106,17 +114,17 @@ class SiftOdom(MonoCamVisualOdom):
 
  
 class OrbOdom(MonoCamVisualOdom):
-    ORB_N_FEATURES = 500    # more features more stable odom
-    ORB_EDGE_THRESHOLD = 13
-    ORB_SCORE_TYPE = cv2.ORB_FAST_SCORE
+    N_FEATURES = 500    # more features more stable odom
+    EDGE_THRESHOLD = 13
+    SCORE_TYPE = cv2.ORB_FAST_SCORE
 
     def __init__(self, *args, **kwargs):
         super(OrbOdom, self).__init__(*args, **kwargs)
         self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         self._orb = cv2.ORB_create(
-            nfeatures=kwargs.get('nfeatures', OrbOdom.ORB_N_FEATURES), 
-            edgeThreshold=kwargs.get('edgeThreshold', OrbOdom.ORB_EDGE_THRESHOLD), 
-            scoreType=kwargs.get('scoreType', OrbOdom.ORB_SCORE_TYPE),
+            nfeatures=kwargs.get('nfeatures', OrbOdom.N_FEATURES), 
+            edgeThreshold=kwargs.get('edgeThreshold', OrbOdom.EDGE_THRESHOLD), 
+            scoreType=kwargs.get('scoreType', OrbOdom.SCORE_TYPE),
         )
 
     def get_features(self, frame:np.uint8):
