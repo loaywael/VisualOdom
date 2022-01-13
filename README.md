@@ -6,6 +6,8 @@ Monocular Method
 - OrbOdom, SiftOdom
 - OpticalFlow based OrbOdom, SiftOdom
 
+<img src="assets/orb_odom.gif">
+
 Stereo Method
 - OrbOdom, SiftOdom
 - OpticalFlow based OrbOdom, SiftOdom
