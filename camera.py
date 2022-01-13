@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import numpy as np
+from scipy import linalg
 import scipy
-
 
 class PinHoleCamera:
     def __init__(
@@ -31,7 +31,11 @@ class PinHoleCamera:
         elif isinstance(K, (np.ndarray)): 
             self.setIntrinsicMtx(K)
         else: raise RuntimeError('(K, TF) and (P) enter either one')
-        
+
+    @property
+    def D(self): 
+        return self._D
+
     @property
     def P(self): 
         return self._P
@@ -146,7 +150,7 @@ class Camera(PinHoleCamera):
         '''Returns Camera View Mesh relative to the camera coordinates from Top-Left-CCW'''
         aspect = self._imgW / self._imgH    # view aspect ratio
         w, h = 1, 1/aspect                  # view size (w, h)
-        depth = aspect*scale                # view virtual focal length
+        depth = aspect*0.3*scale                # view virtual focal length
         viewPts = np.array([
             [0, 0, 0, 1],
             [-scale*w, -scale*h, depth, 1],
@@ -156,5 +160,5 @@ class Camera(PinHoleCamera):
         ])
         viewLines = [[0, i] for i in range(1, len(viewPts))]
         viewLines += [[i, i+1] for i in range(1, len(viewPts)-1)] + [[4, 1]]
-        viewPoints = (np.linalg.inv(self._TF) @ viewPts.T)[:3].T    # camera -> world
+        viewPoints = (self._TF @ viewPts.T)[:3].T    # camera -> world
         return dict(points=viewPoints, lines=viewLines, center=self.center)
