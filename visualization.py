@@ -82,8 +82,13 @@ def set_pointcloud_obj(pcd_obj, pcd_arr, color=None, tf=None):
     '''
     Params
     ------
-    pose : (dict)
+    pcd_obj : (PointCloud)
+        open3d.geometry.PointCloud object 
+    pcd_arr : (np.float)
         LinSet Mesh (points, lines) f the camera view 5 points
+    color : (list)
+    tf : (list)
+        object transformation matrix
     '''
     pcd_obj.point["positions"] = np.float32(pcd_arr)
     if color is not None:
@@ -96,8 +101,13 @@ def set_camera_view(lineset_obj, pose, color=[0, 1, 0], tf=None):
     '''
     Params
     ------
+    lineset_obj : (LineSet)
+        open3d.geometry.LineSet object
     pose : (dict)
         LinSet Mesh (points, lines) f the camera view 5 points
+    color : (list)
+    tf : (list)
+        object transformation matrix
     '''
     lineset_obj.point["positions"] = np.float32(pose['points'])
     lineset_obj.line["indices"] = np.float32(pose['lines'])
